@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agency CLI"
+  short_description: "Load this to find the exact agency agent"
+  default_prompt: "Use $agency-cli to hire a prompt repo, browse its folders, and resolve the best prompt for the user's request."
