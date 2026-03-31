@@ -1,85 +1,136 @@
 ---
 name: agency-cli
-description: Load this skill when you need the exact agency agent for a task; it tells Codex how to hire, browse, and resolve the right prompt fast.
+description: Load this skill when you need the exact agency agent for a task; it tells Codex how to browse, traverse, and resolve the right prompt fast.
 ---
 
-# Agency CLI
+# Agency CLI — Traversal & Prompt Retrieval
 
-Use this skill to work with the installed `the-agency` CLI and choose the right prompt from an agency repository.
+Use this skill to navigate an active agency repository and resolve prompts using `the-agency` CLI.
 
-## Quick Start
+## Listing the Root
 
-Use the installed CLI first.
+Start from the root to see all available divisions.
 
-```powershell
-the-agency --help
-```
-
-Hire a repo or local prompt directory to make it active.
-
-```powershell
-the-agency hire <git-repo-or-local-folder>
-```
-
-List the root options for the active agency.
-
-```powershell
+```bash
 the-agency
 ```
 
-Traverse into a subdepartment.
+Returns a JSON response with `"type": "listing"` containing `subdepartments` and `prompts` arrays.
 
-```powershell
-the-agency <selector>
-the-agency <selector> <selector>
+## Traversing Into a Division
+
+Pass one selector to drill into a division and see its agents.
+
+```bash
+the-agency <division>
 ```
 
-Request only selected metadata fields when the body is not needed.
+Pass two selectors to resolve a specific prompt. Use the `fileName` stem (without `.md`) or the `name` from the listing as the agent selector.
 
-```powershell
-the-agency --fields name,description,color <selector>
+```bash
+the-agency <division> <agent>
 ```
 
-## Workflow
+Each listing level returns the same JSON shape: `subdepartments` (folders to go deeper) and `prompts` (resolvable agents). Follow one level at a time.
 
-1. Ensure the CLI is installed.
-2. Hire the target repo or local folder if no agency is active.
-3. Start with a root listing instead of guessing deep paths.
-4. Follow the returned `subdepartments` or `prompts` one level at a time.
-5. Resolve a single prompt only after the listing makes the choice clear.
-6. Use `--fields` for ranking or routing decisions; fetch full prompt content only when needed.
+## Resolving a Prompt
 
-If you are developing this repository locally, build first and run the compiled CLI directly.
+When you reach a prompt, the response changes to `"type": "prompt"` and includes the full `prompt` field with the agent's system prompt content. The `matchedBy` field tells you how the CLI resolved the selector (e.g. `"frontmatter.name"` or `"fileName"`).
 
-```powershell
-pnpm build
-node dist/index.js <selector>
+```bash
+the-agency engineering technical-writer
 ```
 
-## Routing Guidance
+## Filtering Fields
 
-Prefer explicit intent over vague wording.
+Use `--fields` to request only specific metadata in listing responses. Useful for scanning multiple divisions when choosing between candidates.
 
-- Route visual polish, design systems, reusable components, layout consistency, hierarchy, spacing, and pixel-perfect UI requests to the UI-focused prompt.
-- Route user interviews, usability testing, evidence gathering, behavior analysis, friction diagnosis, and validation requests to the UX research prompt.
-- For vague requests such as "improve onboarding" or "make this easier to use," default to the research-oriented prompt first unless the request clearly asks for visual or component implementation.
+```bash
+the-agency --fields name,description <division>
+the-agency --fields name,description,color,emoji,vibe <division>
+```
 
-## Command Patterns
+Available fields: `name`, `description`, `color`, `emoji`, `vibe`.
 
-Use these patterns directly.
+## Switching Active Agencies
 
-```powershell
-the-agency hire fixtures/agency-agents-mirror
+If multiple agencies have been hired, list and switch between them.
+
+```bash
+the-agency agencies list
+the-agency agencies use <agency-key>
+```
+
+## Routing Strategy
+
+Divisions have no descriptions at the root level. Use these heuristics to narrow down which divisions to scan:
+
+- **Code-level work** (reviews, architecture, implementation): `engineering`
+- **QA, testing, auditing**: `testing`
+- **Product, prioritization, roadmap**: `product`
+- **UI/UX, design systems, visual polish**: `design`
+- **Marketing, content, brand**: `marketing`
+- **Niche/cross-domain specialists**: `specialized`
+- **Process, workflows, coordination**: `project-management`
+
+When a task could fit multiple divisions, scan 2-3 likely candidates with `--fields name,description` before resolving a full prompt.
+
+## Worked Example
+
+Task: find an agent for "testing a website for WCAG compliance."
+
+```bash
+# 1. Root listing — see all divisions
 the-agency
-the-agency design
-the-agency design ui-designer
-the-agency --fields name,description design
+
+# 2. Scan the testing division for candidates
+the-agency --fields name,description testing
+
+# 3. "Accessibility Auditor" matches — resolve its full prompt
+the-agency testing accessibility-auditor
+```
+
+## Response Shapes
+
+### Listing (`"type": "listing"`)
+
+Returned when the selector resolves to a folder.
+
+```json
+{
+  "ok": true,
+  "type": "listing",
+  "message": "These are the available options under ...",
+  "agency": "agency-name",
+  "contextPath": "testing",
+  "subdepartments": [{ "name": "engineering", "path": "engineering" }],
+  "prompts": [{ "fileName": "testing-accessibility-auditor.md", "path": "testing/testing-accessibility-auditor.md", "name": "Accessibility Auditor", "description": "..." }]
+}
+```
+
+### Prompt (`"type": "prompt"`)
+
+Returned when the selector resolves to a single agent.
+
+```json
+{
+  "ok": true,
+  "type": "prompt",
+  "matchedBy": "frontmatter.name",
+  "name": "Technical Writer",
+  "description": "...",
+  "prompt": "# Technical Writer Agent\n\nYou are a **Technical Writer**..."
+}
 ```
 
 ## Practical Rules
 
-- Prefer listings before resolution when the repository structure is unfamiliar.
+- Always start from a root listing instead of guessing deep paths.
+- Follow returned `subdepartments` or `prompts` one level at a time.
+- Use the `fileName` stem (without `.md`) as the selector — this is the most reliable match.
 - Trust exact matches from a listing over freehand guesses.
-- Treat dot-prefixed files and folders as intentionally hidden noise.
-- Treat top-level `README` and `CONTRIBUTING` markdown files as non-prompts.
+- Use `--fields` for ranking or routing decisions; fetch the full prompt only when the choice is clear.
+- When multiple candidates match, resolve the full prompt for the top 1-2 and compare.
 - If a selector is ambiguous, use the returned candidates and retry with a more exact selector.
+- Treat dot-prefixed files and folders as hidden noise.
+- Treat top-level `README` and `CONTRIBUTING` markdown files as non-prompts.
