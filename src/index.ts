@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 
-import { ensureDefaultLookupAgency, registerAgency } from "./agencyBootstrap.js";
+import { DEFAULT_AGENCY_REPO_URL, ensureDefaultLookupAgency, registerAgency } from "./agencyBootstrap.js";
 import { resolveAgencyPath } from "./promptCatalog.js";
 import { LocalStore } from "./store.js";
 import type { AgencyRecord, ErrorResponse, HireResponse, JsonValue } from "./types.js";
@@ -161,9 +161,20 @@ async function handleLookup(store: LocalStore, selectors: string[], fields?: str
   if (data.currentAgency) {
     agency = data.agencies[data.currentAgency];
   } else {
-    const bootstrapped = await ensureDefaultLookupAgency(store);
-    if (bootstrapped) {
-      agency = bootstrapped.record;
+    try {
+      const bootstrapped = await ensureDefaultLookupAgency(store);
+      if (bootstrapped) {
+        agency = bootstrapped.record;
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      printJson(
+        buildError(
+          `Failed to bootstrap the default agency from ${DEFAULT_AGENCY_REPO_URL}: ${reason}. Run \`the-agency hire <git-repo>\` or \`the-agency agencies use <agency-key>\` once network access is available.`,
+        ),
+      );
+      process.exitCode = 1;
+      return;
     }
   }
 

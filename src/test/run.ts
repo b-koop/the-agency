@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -76,6 +77,42 @@ async function testDefaultAgencyBootstrap(): Promise<void> {
   const reloaded = await store.load();
   assert.equal(reloaded.currentAgency, "msitarzewski-agency-agents");
   assert.ok(reloaded.agencies["msitarzewski-agency-agents"]);
+}
+
+async function testDefaultAgencyBootstrapFailureIsReported(): Promise<void> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "agency-bootstrap-failure-"));
+  const fakeBinDir = path.join(tempRoot, "bin");
+  await mkdir(fakeBinDir, { recursive: true });
+
+  const fakeGitPath = path.join(fakeBinDir, "git");
+  await writeFile(
+    fakeGitPath,
+    `#!/bin/sh
+printf 'simulated git clone failure\\n' >&2
+exit 1
+`,
+    "utf8",
+  );
+  await chmod(fakeGitPath, 0o755);
+
+  const result = spawnSync(process.execPath, [path.join(process.cwd(), "dist", "index.js")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENCY_HOME: tempRoot,
+      PATH: `${fakeBinDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    },
+  });
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+
+  assert.equal(payload.ok, false);
+  assert.equal(payload.type, "error");
+  assert.match(payload.message, /default agency/i);
+  assert.match(payload.message, /simulated git clone failure/);
+  assert.match(payload.message, /the-agency hire/i);
+  assert.match(payload.message, /the-agency agencies use/i);
 }
 
 async function testDefaultStorePathUsesProjectDirectory(): Promise<void> {
@@ -214,6 +251,7 @@ async function main(): Promise<void> {
   await testParseFrontmatter();
   await testLocalStore();
   await testDefaultAgencyBootstrap();
+  await testDefaultAgencyBootstrapFailureIsReported();
   await testDefaultStorePathUsesProjectDirectory();
   await testPromptResolution();
   await testRootFilteringUsesGitignoreAndSkipsNoiseFiles();
