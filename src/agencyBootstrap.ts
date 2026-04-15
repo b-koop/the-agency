@@ -5,6 +5,12 @@ import { LocalStore } from "./store.js";
 import type { AgencyRecord } from "./types.js";
 
 export const DEFAULT_AGENCY_REPO_URL = "https://github.com/nivoset/agency-agents.git";
+export const DEFAULT_AGENCY_REPO_ENV_VAR = "AGENCY_DEFAULT_REPO_URL";
+
+export function getDefaultAgencyRepoUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env[DEFAULT_AGENCY_REPO_ENV_VAR]?.trim();
+  return configured ? configured : DEFAULT_AGENCY_REPO_URL;
+}
 
 export interface PreparedAgency {
   agencyKey: string;
@@ -77,7 +83,7 @@ export async function ensureDefaultLookupAgency(
     return null;
   }
 
-  return registerAgency(store, DEFAULT_AGENCY_REPO_URL, {
+  return registerAgency(store, getDefaultAgencyRepoUrl(), {
     ...options,
     makeCurrent: true,
   });

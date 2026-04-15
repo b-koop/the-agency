@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
-import { DEFAULT_AGENCY_REPO_URL, ensureDefaultLookupAgency, registerAgency } from "./agencyBootstrap.js";
+import { ensureDefaultLookupAgency, getDefaultAgencyRepoUrl, registerAgency } from "./agencyBootstrap.js";
 import { resolveAgencyPath } from "./promptCatalog.js";
 import { LocalStore } from "./store.js";
 import type { AgencyRecord, ErrorResponse, HireResponse, JsonValue } from "./types.js";
+
+const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, "../package.json"), "utf8")) as {
+  version?: string;
+};
+const cliVersion = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
 
 function printJson(payload: unknown): void {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
@@ -168,9 +175,10 @@ async function handleLookup(store: LocalStore, selectors: string[], fields?: str
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      const fallbackRepoUrl = getDefaultAgencyRepoUrl();
       printJson(
         buildError(
-          `Failed to bootstrap the default agency from ${DEFAULT_AGENCY_REPO_URL}: ${reason}. Run \`the-agency hire <git-repo>\` or \`the-agency agencies use <agency-key>\` once network access is available.`,
+          `Failed to bootstrap the default agency from ${fallbackRepoUrl}: ${reason}. Run \`the-agency hire <git-repo>\` or \`the-agency agencies use <agency-key>\` once network access is available.`,
         ),
       );
       process.exitCode = 1;
@@ -201,6 +209,7 @@ async function main(): Promise<void> {
   program
     .name("the-agency")
     .description("Hire prompt repositories and resolve prompts from the active agency")
+    .version(cliVersion, "-v, --version", "Show the CLI version")
     .showHelpAfterError()
     .option("--fields <fields>", "Comma-separated fields to include in listings or prompt payloads");
 

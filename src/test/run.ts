@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-import { DEFAULT_AGENCY_REPO_URL, ensureDefaultLookupAgency } from "../agencyBootstrap.js";
+import {
+  DEFAULT_AGENCY_REPO_ENV_VAR,
+  DEFAULT_AGENCY_REPO_URL,
+  ensureDefaultLookupAgency,
+  getDefaultAgencyRepoUrl,
+} from "../agencyBootstrap.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { deriveAgencyKey, isLocalDirectorySource, shouldAttemptPull } from "../git.js";
 import { resolveAgencyPath } from "../promptCatalog.js";
@@ -142,6 +147,46 @@ async function firstRunAutomaticallyRegistersDefaultAgency(): Promise<void> {
   const reloaded = await store.load();
   assert.equal(reloaded.currentAgency, "nivoset-agency-agents");
   assert.ok(reloaded.agencies["nivoset-agency-agents"]);
+}
+
+async function defaultAgencyBootstrapUsesEnvOverride(): Promise<void> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "agency-bootstrap-env-"));
+  const store = new LocalStore({
+    appDir: tempRoot,
+    reposDir: path.join(tempRoot, "repos"),
+    storeFile: path.join(tempRoot, "store.json"),
+  });
+  const overrideRepoUrl = "https://github.com/example/agency-agents-custom.git";
+  const originalDefaultRepo = process.env[DEFAULT_AGENCY_REPO_ENV_VAR];
+
+  process.env[DEFAULT_AGENCY_REPO_ENV_VAR] = `  ${overrideRepoUrl}  `;
+  try {
+    assert.equal(getDefaultAgencyRepoUrl(), overrideRepoUrl);
+
+    const bootstrapped = await ensureDefaultLookupAgency(store, {
+      syncRepo: async () => ({
+        didClone: true,
+        didPull: false,
+        pullAttempted: false,
+        pullSucceeded: false,
+        warnings: [],
+      }),
+    });
+
+    assert.ok(bootstrapped);
+    if (bootstrapped) {
+      const expectedAgencyKey = deriveAgencyKey(overrideRepoUrl);
+      assert.equal(bootstrapped.repoUrl, overrideRepoUrl);
+      assert.equal(bootstrapped.agencyKey, expectedAgencyKey);
+      assert.equal(bootstrapped.record.key, expectedAgencyKey);
+    }
+  } finally {
+    if (typeof originalDefaultRepo === "undefined") {
+      delete process.env[DEFAULT_AGENCY_REPO_ENV_VAR];
+    } else {
+      process.env[DEFAULT_AGENCY_REPO_ENV_VAR] = originalDefaultRepo;
+    }
+  }
 }
 
 async function defaultAgencyBootstrapFailureExplainsRecoveryCommands(): Promise<void> {
@@ -409,12 +454,32 @@ async function helperUtilitiesNormalizeAgencySourceInputs(): Promise<void> {
   assert.equal(shouldAttemptPull(old), true);
 }
 
+async function versionFlagsPrintPackageVersion(): Promise<void> {
+  const packageJson = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8")) as {
+    version?: string;
+  };
+  assert.equal(typeof packageJson.version, "string");
+
+  const shortVersion = spawnSync(process.execPath, [path.join(process.cwd(), "dist", "index.js"), "-v"], {
+    encoding: "utf8",
+  });
+  assert.equal(shortVersion.status, 0);
+  assert.equal(shortVersion.stdout.trim(), packageJson.version);
+
+  const longVersion = spawnSync(process.execPath, [path.join(process.cwd(), "dist", "index.js"), "--version"], {
+    encoding: "utf8",
+  });
+  assert.equal(longVersion.status, 0);
+  assert.equal(longVersion.stdout.trim(), packageJson.version);
+}
+
 async function main(): Promise<void> {
   await yamlHeaderExtractsNameAndDescription();
   await registeredAgencyPersistsAcrossRestart();
   await corruptedStoreFileExplainsRecoverySteps();
   await cachedStoreReadsSurviveUnreadableBackingFile();
   await firstRunAutomaticallyRegistersDefaultAgency();
+  await defaultAgencyBootstrapUsesEnvOverride();
   await defaultAgencyBootstrapFailureExplainsRecoveryCommands();
   await testDefaultStorePathUsesProjectDirectory();
   await selectorPathReturnsMatchingPrompt();
@@ -424,6 +489,7 @@ async function main(): Promise<void> {
   await testListingWithBaseFieldsSkipsPromptReads();
   await unclearSelectorShowsAllPossibleMatches();
   await helperUtilitiesNormalizeAgencySourceInputs();
+  await versionFlagsPrintPackageVersion();
   process.stdout.write("All tests passed.\n");
 }
 
